@@ -5,7 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.resnet18_encoder import *
 from models.resnet20_cifar import *
-
+#from models.official_efficientNet import *
+from models.efficientNet import *
+#from torchvision.models.efficientnet import *
+from typing import Any, Callable, Optional, List, Sequence
+from torchvision.ops.misc import ConvNormActivation, SqueezeExcitation
 
 class MYNET(nn.Module):
 
@@ -21,15 +25,20 @@ class MYNET(nn.Module):
             self.encoder = resnet18(False, args)  # pretrained=False
             self.num_features = 512
         if self.args.dataset == 'cub200':
-            self.encoder = resnet18(True, args)  # pretrained=True follow TOPIC, models for cub is imagenet pre-trained. https://github.com/xyutao/fscil/issues/11#issuecomment-687548790
-            self.num_features = 512
+            #self.encoder = resnet18(True, args)
+            self.encoder = efficientnet_b0(True, args)  # pretrained=True follow TOPIC, models for cub is imagenet pre-trained. https://github.com/xyutao/fscil/issues/11#issuecomment-687548790
+            #self.encoder = efficientnet_b0(False, args)
+            #self.num_features = 512
+            self.num_features = 1000
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
+        #print('### model.summary')
+        #print(self.encoder)
         
         self.pre_allocate = self.args.num_classes
         self.fc = nn.Linear(self.num_features, self.pre_allocate, bias=False)
         
         nn.init.orthogonal_(self.fc.weight)
+
         self.dummy_orthogonal_classifier=nn.Linear(self.num_features, self.pre_allocate-self.args.base_class, bias=False)
         self.dummy_orthogonal_classifier.weight.requires_grad = False
         
@@ -39,13 +48,20 @@ class MYNET(nn.Module):
         print('self.dummy_orthogonal_classifier.weight initialized over.')
 
     def forward_metric(self, x):
+        #print('### original x: ')
+        #print(x)
         x = self.encode(x)
+        #print('### after encode x: ')
+        #print(x)
         if 'cos' in self.mode:
-            
+            #print('### after normalize x: ')
+            #print(F.normalize(x, p=2, dim=-1).shape)
             x1 = F.linear(F.normalize(x, p=2, dim=-1), F.normalize(self.fc.weight, p=2, dim=-1))
+            #x1 = F.linear(F.normalize(x, p=2, dim=-1).unsqueeze(dim=0), F.normalize(self.fc.weight, p=2, dim=-1))
             x2 = F.linear(F.normalize(x, p=2, dim=-1), F.normalize(self.dummy_orthogonal_classifier.weight, p=2, dim=-1))
             
             x = torch.cat([x1[:,:self.args.base_class],x2],dim=1)
+            #print(x.shape)
             
             x = self.args.temperature * x
             
@@ -67,10 +83,19 @@ class MYNET(nn.Module):
         return x
 
     def encode(self, x):
+        #print('*** start to sun self.encoder() with x: '+str(x.shape))
+        #print(x)
         x = self.encoder(x)
-        x = F.adaptive_avg_pool2d(x, 1)
-        x = x.squeeze(-1).squeeze(-1)
+        #print('*** after run self.encoder(): '+str(x.shape))
+        #print(x)
+        #x = F.adaptive_avg_pool2d(x, 1)
+        #print('*** after adaptive_agv_pooling: '+str(x.shape))
+        #print(x)
+        #x = x.squeeze(-1).squeeze(-1)
+        #print('*** after squeezing: '+str(x.shape))
+        #print(x)
         return x
+
     
     def pre_encode(self,x):
         
@@ -82,12 +107,23 @@ class MYNET(nn.Module):
             x = self.encoder.layer2(x)
             
         elif self.args.dataset in ['mini_imagenet','manyshotmini','cub200']:
-            x = self.encoder.conv1(x)
-            x = self.encoder.bn1(x)
-            x = self.encoder.relu(x)
-            x = self.encoder.maxpool(x)
-            x = self.encoder.layer1(x)
-            x = self.encoder.layer2(x)
+            print('### start pre_encode')
+            print(x.shape)
+            x = self.encoder.block0(x) #
+            print('### after block0')
+            print(x.shape)
+            x = self.encoder.block1(x) #
+            print('### after block1')
+            print(x.shape)
+            x = self.encoder.block2(x) #
+            print('### after block2')
+            print(x.shape)
+            x = self.encoder.block3(x) #
+            print('### after block3')
+            print(x.shape)
+            x = self.encoder.block4(x) #
+            print('### after block4')
+            print(x.shape)
         
         return x
         
@@ -100,13 +136,45 @@ class MYNET(nn.Module):
             x = x.squeeze(-1).squeeze(-1)
 
         elif self.args.dataset in ['mini_imagenet','manyshotmini','cub200']:
-            
-            x = self.encoder.layer3(x)
-            x = self.encoder.layer4(x)
-            x = F.adaptive_avg_pool2d(x, 1)
-            x = x.squeeze(-1).squeeze(-1)
-        
+            print('### start post_encode')
+            print(x.shape)
+            x = self.encoder.block5(x) #
+            print('### after block5')
+            print(x.shape)
+            x = self.encoder.block6(x) #
+            print('### after block6')
+            print(x.shape)
+            x = self.encoder.block7(x) #
+            print('### after block7')
+            print(x.shape)
+            x = self.encoder.last_block(x)
+            print('### last block ')
+            print(x.shape)
+
+            ### add 
+
+            #x = self.encoder.features(x)
+            #print('after features: ')
+           # print(x.shape)
+            x = self.encoder.avgpool(x)
+            print('after pooling: ')
+            print(x.shape)
+            x = torch.flatten(x, 1)
+            print('after flatten')
+            print(x.shape)
+            x = self.encoder.classifier(x)
+            print('after processings: ')
+            print(x.shape)
+
         if 'cos' in self.mode:
+            print('### shape of x')
+            print(x.shape)
+            print('### shape of normalized x')
+            print(F.normalize(x, p=2, dim=-1).shape)
+            print('### shape of fc.weight')
+            print(self.fc.weight.shape)
+            print('### shape of normalized fc.weight')
+            print(F.normalize(self.fc.weight, p=2, dim=-1).shape)
             x = F.linear(F.normalize(x, p=2, dim=-1), F.normalize(self.fc.weight, p=2, dim=-1))
             x = self.args.temperature * x
 
