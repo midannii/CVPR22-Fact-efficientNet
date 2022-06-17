@@ -8,22 +8,27 @@ import numpy as np
 def base_train(model, trainloader, optimizer, scheduler, epoch, args,mask):
     tl = Averager()
     ta = Averager()
+    #print('$$$ run model.train()')
     model = model.train()
     tqdm_gen = tqdm(trainloader)
 
     for i, batch in enumerate(tqdm_gen, 1):
-
+        #print('for batch '+str(i))
         beta=torch.distributions.beta.Beta(args.alpha, args.alpha).sample([]).item()
         data, train_label = [_.cuda() for _ in batch]
         
         embeddings=model.module.encode(data)
-
+        #print('#### data is --')
+        #print(data)
+        #print(data.shape)
         logits = model(data)
         logits_ = logits[:, :args.base_class]
         loss = F.cross_entropy(logits_, train_label)
         
         acc = count_acc(logits_, train_label)
-        
+       
+
+
         
         if epoch>=args.loss_iter:
             logits_masked = logits.masked_fill(F.one_hot(train_label, num_classes=model.module.pre_allocate) == 1, -1e9)
@@ -34,8 +39,15 @@ def base_train(model, trainloader, optimizer, scheduler, epoch, args,mask):
 
             index = torch.randperm(data.size(0)).cuda()
             pre_emb1=model.module.pre_encode(data)
+
+            #pre_emb1=model.module.encode(data)
+            print('### pre_emb1')
+            print(pre_emb1.shape)
             mixed_data=beta*pre_emb1+(1-beta)*pre_emb1[index]
+            print('## mized_data')
+            print(mixed_data.shape)
             mixed_logits=model.module.post_encode(mixed_data)
+            #mixed_logits=model.module.encode(mixed_data)
 
             newys=train_label[index]
             idx_chosen=newys!=train_label
